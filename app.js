@@ -39,77 +39,88 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.use(express.static(path.join(__dirname, 'public')));
-var usuario = Usuario;
-if (typeof usuario === 'undefined' || usuario === Usuario ) {
-  usuario = "";
 
-}
+
 app.use(passport.initialize());
 app.use(passport.session());
 
+var pass=passport.use(
+	'local-login',
+	new LocalStrategy({
+		// by default, local strategy uses username and password, we will override with email
+		usernameField : 'email',
+		passwordField : 'password',
+		passReqToCallback : true // allows us to pass back the entire request to the callback
+	},
+		function(req,email,password, done){
+  			connection.query('SELECT * FROM '+TABLE+' WHERE email = ?', [email], 
+  				function(error, results, fields){
+					  console.log(results[0]);
+    				if (error) {
+						return done(error);
+						
+					} 
+					if (!results.length) {
+						return done(null, false, req.flash('loginMessage', 'No user found.'));
+					}
+					// if the user is found but the password is wrong
+					if (sha1(password) != (results[0].password)){
+						return done(null, false, req.flash('loginMessage', 'Oops! Wrong password.')); // create the loginMessage and save it to session as flashdata						
+					}
+					// all is well, return successful user
+					usuario = new Usuario(results[0].idusuario, results[0].nombre, results[0].apellido, results[0].email, results[0].password);
+					return done(null, usuario);
+					// console.log(usuario);
+				  }
+			);
+		}
+	)
+);
 
 passport.serializeUser(function(usuario, done) {
   done(null, usuario.idusuario);
 });
 
-passport.deserializeUser(function(usuario, done) {
-  done(null, usuario);
+passport.deserializeUser(function(id, done) {
+	connection.query("SELECT * FROM usuarios WHERE idusuario = ? ",[id], function(err, rows){
+		done(err, rows[0]);
+	});
 });
 
-passport.use(new LocalStrategy(function(email,password, done){
-  connection.query('SELECT * FROM '+TABLE+' WHERE email = ? AND password = ?', [email, password], 
-  function(error, results, fields){
-    if (error) {
-			return done(err);
-		} 
-		if (results == "") {
-      return done(null,false,{ message: 'contraseña o correo incorrecto. vuelve a intentarlo'});
-		}
-		else {
-      usuario = new Usuario(results[0].idusuario, results[0].nombre, results[0].apellido, results[0].email, results[0].password);
-      return done(null,usuario);
-		}
-  });
-}));
+
 
 // Routes
 app.get('/', function(req, res) {
-  res.render('index', { title: 'Express', usuario: req.usuario });
-  console.log(usuario);
+  res.render('index', { 
+	  title: 'Express', 
+	  user: req.user });
+  console.log(pass);
 });
 
 
 app.get('/login', function(req,res){
   res.render('login', {
-    usuario: req.usuario
+    user: req.usuario
   });
-  console.log(usuario)
+  
   
 });
-app.post('/login', function(req,res, next){
-  var email = req.body.email;
-	var password = sha1(req.body.password);
-  var conn =connection.query('SELECT * FROM '+TABLE+' WHERE email = ? AND password = ?', [email, password], 
-  function(error, results, fields){
-		if (error) {
-			res.status(400).send({ failed : "Error con el servidor"});
-      console.log(error);
-		} 
-		if (results == "") {
-      res.status(200).send({ failed : "El usuario o la contraseña son incorrectas" });
-      console.log(results);
-		}
-		else {
-      usuario = new Usuario(results[0].idusuario, results[0].nombre, results[0].apellido, results[0].email, results[0].password);
-      res.status(200).send({ usuario : usuario });
-    }
-    
-  });
-  passport.authenticate('local', { failureRedirect: '/login' }),
+app.post('/login', 
+  passport.authenticate('local-login', { 
+	successRedirect : '/', // redirect to the secure profile section
+	failureRedirect : '/login', // redirect back to the signup page if there is an error
+	failureFlash : true // allow flash messages
+   }),
   function(req, res) {
-    res.redirect('/');
-  }
-});
+    console.log("hello");
+	
+				if (req.body.remember) {
+				  req.session.cookie.maxAge = 1000 * 60 * 3;
+				} else {
+				  req.session.cookie.expires = false;
+				}
+			res.redirect('/');
+  });
 
 //   passport.authenticate('local', function(err,usuario,info){
 //     if(err) return next(err)
@@ -126,7 +137,7 @@ app.post('/login', function(req,res, next){
 
 app.get('/signup', function(req, res) {
   res.render('signup', {
-    usuario: req.usuario
+    user: req.usuario
   });
   console.log(usuario);
 });
@@ -138,7 +149,7 @@ app.post('/signup',function(req, res) {
 	usuario.nombre = params.nombre;
 	usuario.apellido = params.apellido;
 	usuario.email = params.email;
-  usuario.password = sha1(params.password);
+  	usuario.password = sha1(params.password);
   
   var query = connection.query('INSERT INTO '+DATABASE+'.'+TABLE+' SET ?', usuario, function(error, results, fields){
 		if (error) throw error;
