@@ -44,7 +44,57 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(passport.initialize());
 app.use(passport.session());
 
-var pass=passport.use(
+// =========================================================================
+// LOCAL SIGNUP ============================================================
+// =========================================================================
+// we are using named strategies since we have one for login and one for signup
+// by default, if there was no name, it would just be called 'local'
+
+passport.use(
+	'local-signup',
+	new LocalStrategy({
+		// by default, local strategy uses username and password, we will override with email
+		usernameField : 'email',
+		passwordField : 'password',
+		passReqToCallback : true // allows us to pass back the entire request to the callback
+	},
+	function(req, email, password, done) {
+		// find a user whose email is the same as the forms email
+		// we are checking to see if the user trying to login already exists
+		connection.query('SELECT * FROM '+TABLE+' WHERE email = ?', [email],
+		 function(err, results) {
+			if (err)
+				return done(err);
+			if (results.length) {
+				return done(null, false, req.flash('signupMessage', 'That email is already taken.'));
+			} 
+			else {
+				// if there is no user with that username
+				// create the user
+				var usuario = new Usuario(); 
+				var params = req.body;
+				
+				usuario.nombre = params.nombre;
+				usuario.apellido = params.apellido;
+				usuario.email = params.email;
+				usuario.password = sha1(params.password);
+				
+
+				var insertQuery = "INSERT INTO usuarios (email,nombre,apellido,password) values (?,?,?,?)";
+				console.log(insertQuery)
+				connection.query(insertQuery,[usuario.email, usuario.nombre, usuario.apellido, usuario.password],function(err, results) {
+					if (err) {
+						return done(err);
+					}
+					usuario.idusuario = results.insertId;
+
+					return done(null, usuario);
+				});
+			}
+		});
+	})
+);
+passport.use(
 	'local-login',
 	new LocalStrategy({
 		// by default, local strategy uses username and password, we will override with email
@@ -94,11 +144,10 @@ app.get('/', function(req, res) {
   res.render('index', { 
 	  title: 'Express', 
 	  user: req.user });
-  console.log(pass);
 });
 
 
-app.get('/login', function(req,res){
+app.get('/login',isLoggedIn, function(req,res){
   res.render('login', {
     user: req.usuario
   });
@@ -135,29 +184,36 @@ app.post('/login',
 //     });
 //   })(req, res, next);
 
-app.get('/signup', function(req, res) {
-  res.render('signup', {
+app.get('/signup', isLoggedIn, function(req, res) {
+  	res.render('signup', {
     user: req.usuario
   });
-  console.log(usuario);
 });
 
-app.post('/signup',function(req, res) {
-  var usuario = new Usuario(); 
-	var params = req.body;
+// process the signup form
+app.post('/signup', passport.authenticate('local-signup', {
+	successRedirect : '/', // redirect to the secure profile section
+	failureRedirect : '/signup', // redirect back to the signup page if there is an error
+	failureFlash : true // allow flash messages
+}));
 
-	usuario.nombre = params.nombre;
-	usuario.apellido = params.apellido;
-	usuario.email = params.email;
-  	usuario.password = sha1(params.password);
+
+// app.post('/signup',function(req, res) {
+//   var usuario = new Usuario(); 
+// 	var params = req.body;
+
+// 	usuario.nombre = params.nombre;
+// 	usuario.apellido = params.apellido;
+// 	usuario.email = params.email;
+//   	usuario.password = sha1(params.password);
   
-  var query = connection.query('INSERT INTO '+DATABASE+'.'+TABLE+' SET ?', usuario, function(error, results, fields){
-		if (error) throw error;
-		else{
-			res.status(200).send({ usuario : usuario});
-		}
-	});
-});
+//   var query = connection.query('INSERT INTO '+DATABASE+'.'+TABLE+' SET ?', usuario, function(error, results, fields){
+// 		if (error) throw error;
+// 		else{
+// 			res.status(200).send({ usuario : usuario});
+// 		}
+// 	});
+// });
 app.get('/logout', function(req, res){
   req.logout();
   res.redirect('/');
@@ -170,28 +226,68 @@ app.get('/forgot', function(req, res) {
 });
 
 app.post('/forgot', function(req, res, next) {
-  async.waterfall([
-    function(done) {
-      crypto.randomBytes(20, function(err, buf) {
-        var token = buf.toString('hex');
-        done(err, token);
-      });
-    },
-    function(token, done) {
-      User.findOne({ email: req.body.email }, function(err, user) {
-        if (!user) {
-          req.flash('error', 'No account with that email address exists.');
-          return res.redirect('/forgot');
-        }
+	console.log(req);
+	email :string = req.body.email;
+  	async.waterfall([
+    	function(done) {
+      	crypto.randomBytes(20, function(err, buf) {
+        	var token = buf.toString('hex');
+        	done(err, token);
+	  	});
+	},
+	function(token,email, done) {
+		// console.log(JSON.stringify(email));
+		// email : req.body.email;
+		// find a user whose email is the same as the forms email
+		// we are checking to see if the user trying to login already exists
+		// connection.query('SELECT * FROM '+TABLE+' WHERE email = ?', [email],
+		//  function(err, results) {
+		// 	if (err)
+		// 		return done(err);
+		// 	if (results.length) {
+		// 		return done(null, false, req.flash('signupMessage', 'That email is already taken.'));
+		// 	} 
+		// 	else {
+		// 		console.log(req.body);
+				// if there is no user with that username
+				// create the user
+				// var usuario = new Usuario(); 
+				// var params = req.body;
+				
+				// usuario.nombre = params.nombre;
+				// usuario.apellido = params.apellido;
+				// usuario.email = params.email;
+				// usuario.password = sha1(params.password);
+				
 
-        user.resetPasswordToken = token;
-        user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+				// var insertQuery = "INSERT INTO usuarios (email,nombre,apellido,password) values (?,?,?,?)";
+				// console.log(insertQuery)
+				// connection.query(insertQuery,[usuario.email, usuario.nombre, usuario.apellido, usuario.password],function(err, results) {
+				// 	if (err) {
+				// 		return done(err);
+				// 	}
+				// 	usuario.idusuario = results.insertId;
 
-        user.save(function(err) {
-          done(err, token, user);
-        });
-      });
-    },
+				// 	return done(null, usuario);
+				// });
+		// 	}
+		// });
+	},
+    // function(token, done) {
+    //   User.findOne({ email: req.body.email }, function(err, user) {
+    //     if (!user) {
+    //       req.flash('error', 'No account with that email address exists.');
+    //       return res.redirect('/forgot');
+    //     }
+
+    //     user.resetPasswordToken = token;
+    //     user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+
+    //     user.save(function(err) {
+    //       done(err, token, user);
+    //     });
+    //   });
+    // },
     function(token, user, done) {
       var smtpTransport = nodemailer.createTransport('SMTP', {
         service: 'SendGrid',
@@ -219,6 +315,17 @@ app.post('/forgot', function(req, res, next) {
     res.redirect('/forgot');
   });
 });
+
+function isLoggedIn(req, res, next) {
+	
+		// if user is authenticated in the session, carry on
+		if (!req.isAuthenticated())
+			return next();
+	
+		// if they aren't redirect them to the home page
+		res.redirect('/');
+	}
+	
 
 app.listen(app.get('port'), function() {
   console.log('Express server listening on port ' + app.get('port'));
