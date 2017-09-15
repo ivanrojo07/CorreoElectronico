@@ -1,3 +1,4 @@
+'use strict'
 var express = require('express');
 var path = require('path');
 var favicon = require('static-favicon');
@@ -20,6 +21,10 @@ var LocalStrategy = require('passport-local').Strategy;
 var async = require('async');
 var crypto = require('crypto');
 var flash = require('express-flash');
+
+
+var sgTransport = require('nodemailer-sendgrid-transport');
+
 
 
 var app = express();
@@ -226,94 +231,101 @@ app.get('/forgot', function(req, res) {
 });
 
 app.post('/forgot', function(req, res, next) {
-	console.log(req);
-	email :string = req.body.email;
+	// console.log(req.body.email);
+	var email = req.body.email;
+		
   	async.waterfall([
-    	function(done) {
+    		function(done) {
       	crypto.randomBytes(20, function(err, buf) {
         	var token = buf.toString('hex');
         	done(err, token);
 	  	});
 	},
-	function(token,email, done) {
-		// console.log(JSON.stringify(email));
-		// email : req.body.email;
-		// find a user whose email is the same as the forms email
-		// we are checking to see if the user trying to login already exists
-		// connection.query('SELECT * FROM '+TABLE+' WHERE email = ?', [email],
-		//  function(err, results) {
-		// 	if (err)
-		// 		return done(err);
-		// 	if (results.length) {
-		// 		return done(null, false, req.flash('signupMessage', 'That email is already taken.'));
-		// 	} 
-		// 	else {
-		// 		console.log(req.body);
-				// if there is no user with that username
-				// create the user
-				// var usuario = new Usuario(); 
-				// var params = req.body;
-				
-				// usuario.nombre = params.nombre;
-				// usuario.apellido = params.apellido;
-				// usuario.email = params.email;
-				// usuario.password = sha1(params.password);
-				
-
-				// var insertQuery = "INSERT INTO usuarios (email,nombre,apellido,password) values (?,?,?,?)";
-				// console.log(insertQuery)
-				// connection.query(insertQuery,[usuario.email, usuario.nombre, usuario.apellido, usuario.password],function(err, results) {
-				// 	if (err) {
-				// 		return done(err);
-				// 	}
-				// 	usuario.idusuario = results.insertId;
-
-				// 	return done(null, usuario);
-				// });
-		// 	}
-		// });
+	function(token, done) {
+		console.log(token.length);
+		//buscar al usuario por email
+		connection.query('SELECT * FROM '+TABLE+' WHERE email = ?', [email], (error, results)=>{
+			if(error){
+				return done(err);
+			}
+			if(!results.length){
+				return done(null, false, req.flash('signupMessage', 'Este correo no existe.'));
+			}
+			else{
+				var user = new Usuario(results[0].idusuario, results[0].nombre, results[0].apellido, results[0].email, results[0].password);
+				var expires = Date.now()+3600000;
+				connection.query('UPDATE '+TABLE+' SET resetPasswordToken = ?, resetPasswordExpires = ? WHERE idusuario = ?',[token,expires, results[0].idusuario],(error, results, fields)=>{
+					var result = JSON.stringify(results);
+					
+					if (error){
+						console.log("ERROR"+error);
+						return done(null, false, req.flash('MysqlError', "Error al ejecutar query"));
+					}
+					if(!result.length){
+						return done(null, false, req.flash('ResponseNull', "Resultado nulo en la respuesta"));
+					}
+					else{
+						return done( error, token, user);
+						next();
+					}
+				});
+			}
+		} );
 	},
-    // function(token, done) {
-    //   User.findOne({ email: req.body.email }, function(err, user) {
-    //     if (!user) {
-    //       req.flash('error', 'No account with that email address exists.');
-    //       return res.redirect('/forgot');
-    //     }
+	function (token,user,done){
+		// user=JSON.stringify(user);
+		
+		var smtpTransport = nodemailer.createTransport({
+			service: 'SendGrid',
+			auth: {
+				user: 'ivanrojo07',
+				pass: 'Qwerty123'
+			}
+		});
 
-    //     user.resetPasswordToken = token;
-    //     user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+		// var options = {
+		// 	auth: {
+		// 		api_key: 'Qwerty123'
+		// 	}
+		// }
+		 
+		// // or 
+		 
+		// // username + password 
+		// var options = {
+		// 	auth: {
+		// 		api_user: 'ivanrojo07',
+		// 		api_key: 'Qwerty123'
+		// 	}
+		// }
+			
+		// var smtpTransport = nodemailer.createTransport(sgTransport(options));
+		
 
-    //     user.save(function(err) {
-    //       done(err, token, user);
-    //     });
-    //   });
-    // },
-    function(token, user, done) {
-      var smtpTransport = nodemailer.createTransport('SMTP', {
-        service: 'SendGrid',
-        auth: {
-          user: '!!! YOUR SENDGRID USERNAME !!!',
-          pass: '!!! YOUR SENDGRID PASSWORD !!!'
-        }
-      });
-      var mailOptions = {
-        to: user.email,
-        from: 'passwordreset@demo.com',
-        subject: 'Node.js Password Reset',
-        text: 'You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n' +
-          'Please click on the following link, or paste this into your browser to complete the process:\n\n' +
-          'http://' + req.headers.host + '/reset/' + token + '\n\n' +
-          'If you did not request this, please ignore this email and your password will remain unchanged.\n'
-      };
-      smtpTransport.sendMail(mailOptions, function(err) {
-        req.flash('info', 'An e-mail has been sent to ' + user.email + ' with further instructions.');
-        done(err, 'done');
-      });
-    }
-  ], function(err) {
-    if (err) return next(err);
-    res.redirect('/forgot');
-  });
+	
+		
+
+		var mailOptions = {
+			to: user.email,
+			from: 'irojo@byw-si.com.mx',
+			subject: 'Node.js Password Reset',
+			text: 'You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n' +
+				'Please click on the following link, or paste this into your browser to complete the process:\n\n' +
+				'http://' + req.headers.host + '/reset/' + token + '\n\n' +
+				'If you did not request this, please ignore this email and your password will remain unchanged.\n'
+		};
+		smtpTransport.sendMail(mailOptions, function(err) {
+			req.flash('info', 'An e-mail has been sent to ' + user.email + ' with further instructions.');
+			if(err){
+				console.log(err);
+			}
+			done(err, 'done');
+		});
+	}
+], function(err) {
+	if (err) return next(err);
+	res.redirect('/forgot');
+});
 });
 
 function isLoggedIn(req, res, next) {
