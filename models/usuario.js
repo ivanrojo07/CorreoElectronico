@@ -4,12 +4,13 @@ class usuario {
 	// apellido: string;
 	// email: string;
 	// password: string;
-	constructor(idusuario, nombre, apellido, email, password){
+	constructor(idusuario, nombre, apellido, email, password,){
 		this.idusuario = idusuario;
 		this.nombre = nombre;
 		this.apellido = apellido;
 		this.email = email;
 		this.password = password;
+		
 	}
 
 }

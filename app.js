@@ -30,7 +30,7 @@ var sgTransport = require('nodemailer-sendgrid-transport');
 var app = express();
 
 // Middleware
-app.set('port', process.env.PORT || 3700);
+app.set('port', process.env.PORT || 3000);
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
 app.use(favicon());
@@ -123,7 +123,7 @@ passport.use(
 						return done(null, false, req.flash('loginMessage', 'Oops! Wrong password.')); // create the loginMessage and save it to session as flashdata						
 					}
 					// all is well, return successful user
-					usuario = new Usuario(results[0].idusuario, results[0].nombre, results[0].apellido, results[0].email, results[0].password);
+					var usuario = new Usuario(results[0].idusuario, results[0].nombre, results[0].apellido, results[0].email, results[0].password);
 					return done(null, usuario);
 					// console.log(usuario);
 				  }
@@ -276,10 +276,14 @@ app.post('/forgot', function(req, res, next) {
 		// user=JSON.stringify(user);
 		
 		var smtpTransport = nodemailer.createTransport({
-			service: 'SendGrid',
+			service: 'gmail',
 			auth: {
-				user: 'ivanrojo07',
-				pass: 'Qwerty123'
+				user: 'pruebasolvidacontrasena1',
+				pass: 'Qwerty123@'
+			},
+			tls: {
+				// do not fail on invalid certs
+				rejectUnauthorized: false
 			}
 		});
 
@@ -307,7 +311,7 @@ app.post('/forgot', function(req, res, next) {
 
 		var mailOptions = {
 			to: user.email,
-			from: 'irojo@byw-si.com.mx',
+			// from: 'irojo@byw-si.com.mx',
 			subject: 'Node.js Password Reset',
 			text: 'You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n' +
 				'Please click on the following link, or paste this into your browser to complete the process:\n\n' +
@@ -317,7 +321,7 @@ app.post('/forgot', function(req, res, next) {
 		smtpTransport.sendMail(mailOptions, function(err) {
 			req.flash('info', 'An e-mail has been sent to ' + user.email + ' with further instructions.');
 			if(err){
-				console.log(err);
+				console.log('Hola hay un Error '+err);
 			}
 			done(err, 'done');
 		});
@@ -326,6 +330,100 @@ app.post('/forgot', function(req, res, next) {
 	if (err) return next(err);
 	res.redirect('/forgot');
 });
+});
+
+app.get('/reset/:token', function(req, res) {
+
+	connection.query('SELECT * FROM usuarios WHERE resetPasswordToken = ?', [req.params.token], (err,rows)=>{
+		if(err){
+			console.log("hay error "+err);
+		}
+		if(rows[0] == undefined){
+			res.render('index');
+			req.flash('info', 'Password reset token is invalid or has expired.');
+		}
+		else{
+			if(rows[0].resetPasswordExpires <= Date.now()) {
+				req.flash('info','El token para reestablecer esta contraseña ha caducado');
+				console.log('El token para reestablecer esta contraseña ha caducado');
+			}
+			else{
+				// console.log('token fecha	'+rows[0].resetPasswordExpires);
+				// console.log('fecha actual	'+Date.now());
+				// // console.log(JSON.stringify(req.usuario));
+				res.render('reset',{
+					user: req.usuario
+				});
+			}
+			
+		}
+	});
+});
+
+app.post('/reset/:token', function(req, res) {
+	async.waterfall([
+	  function(done) {
+		connection.query('SELECT * FROM usuarios WHERE resetPasswordToken = ?', [req.params.token], (error, results)=>{
+			if(error){
+				return done(err);
+			}
+			if(!results.length){
+				req.flash('error', 'Password reset token is invalid or has expired.');
+				return res.redirect('back');
+			}
+			else{
+				var user = new Usuario(results[0].idusuario, results[0].nombre, results[0].apellido, results[0].email, results[0].password);
+  
+				user.password = req.body.password;
+				user.resetPasswordToken = undefined;
+				user.resetPasswordExpires = undefined;
+
+				connection.query('UPDATE '+TABLE+' SET password = ? , resetPasswordToken = ? , resetPasswordExpires = ? WHERE idusuario = ?',[sha1(user.password), user.resetPasswordToken, user.resetPasswordExpires, user.idusuario], (error, result)=>{
+					if(error){
+						console.log('Error '+error);
+					}
+					else{
+						return done( error, user);
+						next();
+					}
+				});
+  
+				// user.save(function(err) {
+				// 	req.logIn(user, function(err) {
+				// 	done(err, user);
+				// 	});
+				// });
+		}
+	});
+	},
+	  function(user, done) {
+		var smtpTransport = nodemailer.createTransport({
+			service: 'gmail',
+			auth: {
+				user: 'pruebasolvidacontrasena1',
+				pass: 'Qwerty123@'
+			},
+			tls: {
+				// do not fail on invalid certs
+				rejectUnauthorized: false
+			}
+		});
+
+		var mailOptions = {
+		  to: user.email,
+		  from: 'passwordreset@demo.com',
+		  subject: 'Your password has been changed',
+		  text: 'Hello,\n\n' +
+			'This is a confirmation that the password for your account ' + user.email + ' has just been changed.\n'
+		};
+		smtpTransport.sendMail(mailOptions, function(err) {
+		  req.flash('success', 'Success! Your password has been changed.');
+		  done(err);
+		});
+	  }
+	], function(err) {
+	  res.redirect('/');
+	});
 });
 
 function isLoggedIn(req, res, next) {
