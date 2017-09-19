@@ -1,9 +1,4 @@
 class usuario {
-	// idusuario: string;
-	// nombre: string;
-	// apellido: string;
-	// email: string;
-	// password: string;
 	constructor(idusuario, nombre, apellido, email, password,){
 		this.idusuario = idusuario;
 		this.nombre = nombre;

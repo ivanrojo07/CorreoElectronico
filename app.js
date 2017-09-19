@@ -1,4 +1,7 @@
 'use strict'
+var hogan = require('hogan-express');
+var api = require('./routes/usuario');
+
 var express = require('express');
 var path = require('path');
 var favicon = require('static-favicon');
@@ -17,15 +20,9 @@ var mysql = require('mysql');
 var nodemailer = require('nodemailer');
 var passport = require('passport');
 var LocalStrategy = require('passport-local').Strategy;
-// var bcrypt = require('bcrypt-nodejs');
 var async = require('async');
 var crypto = require('crypto');
 var flash = require('express-flash');
-
-
-var sgTransport = require('nodemailer-sendgrid-transport');
-
-
 
 var app = express();
 
@@ -37,6 +34,13 @@ app.use(favicon());
 app.use(logger('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded());
+app.use((req,res,next)=>{
+	res.header('Access-Control-Allow-Origin', '*');
+	res.header('Access-Control-Allow-Headers', 'X-API-KEY, Origin, X-Requested-With, Content-Type, Accept, Access-Control-Request-Method');
+	res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS,PUT,DELETE');
+
+	next();
+});
 app.use(cookieParser());
 app.use(session({ secret: 'session secret key' }));
 app.use(flash());
@@ -49,23 +53,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(passport.initialize());
 app.use(passport.session());
 
-// =========================================================================
-// LOCAL SIGNUP ============================================================
-// =========================================================================
-// we are using named strategies since we have one for login and one for signup
-// by default, if there was no name, it would just be called 'local'
-
 passport.use(
 	'local-signup',
 	new LocalStrategy({
-		// by default, local strategy uses username and password, we will override with email
 		usernameField : 'email',
 		passwordField : 'password',
 		passReqToCallback : true // allows us to pass back the entire request to the callback
 	},
 	function(req, email, password, done) {
-		// find a user whose email is the same as the forms email
-		// we are checking to see if the user trying to login already exists
 		connection.query('SELECT * FROM '+TABLE+' WHERE email = ?', [email],
 		 function(err, results) {
 			if (err)
@@ -74,8 +69,6 @@ passport.use(
 				return done(null, false, req.flash('signupMessage', 'That email is already taken.'));
 			} 
 			else {
-				// if there is no user with that username
-				// create the user
 				var usuario = new Usuario(); 
 				var params = req.body;
 				
@@ -86,7 +79,6 @@ passport.use(
 				
 
 				var insertQuery = "INSERT INTO usuarios (email,nombre,apellido,password) values (?,?,?,?)";
-				console.log(insertQuery)
 				connection.query(insertQuery,[usuario.email, usuario.nombre, usuario.apellido, usuario.password],function(err, results) {
 					if (err) {
 						return done(err);
@@ -102,7 +94,6 @@ passport.use(
 passport.use(
 	'local-login',
 	new LocalStrategy({
-		// by default, local strategy uses username and password, we will override with email
 		usernameField : 'email',
 		passwordField : 'password',
 		passReqToCallback : true // allows us to pass back the entire request to the callback
@@ -110,7 +101,6 @@ passport.use(
 		function(req,email,password, done){
   			connection.query('SELECT * FROM '+TABLE+' WHERE email = ?', [email], 
   				function(error, results, fields){
-					  console.log(results[0]);
     				if (error) {
 						return done(error);
 						
@@ -118,14 +108,11 @@ passport.use(
 					if (!results.length) {
 						return done(null, false, req.flash('loginMessage', 'No user found.'));
 					}
-					// if the user is found but the password is wrong
 					if (sha1(password) != (results[0].password)){
 						return done(null, false, req.flash('loginMessage', 'Oops! Wrong password.')); // create the loginMessage and save it to session as flashdata						
 					}
-					// all is well, return successful user
 					var usuario = new Usuario(results[0].idusuario, results[0].nombre, results[0].apellido, results[0].email, results[0].password);
 					return done(null, usuario);
-					// console.log(usuario);
 				  }
 			);
 		}
@@ -165,9 +152,7 @@ app.post('/login',
 	failureRedirect : '/login', // redirect back to the signup page if there is an error
 	failureFlash : true // allow flash messages
    }),
-  function(req, res) {
-    console.log("hello");
-	
+  function(req, res) {	
 				if (req.body.remember) {
 				  req.session.cookie.maxAge = 1000 * 60 * 3;
 				} else {
@@ -176,18 +161,6 @@ app.post('/login',
 			res.redirect('/');
   });
 
-//   passport.authenticate('local', function(err,usuario,info){
-//     if(err) return next(err)
-//     if(!usuario){
-//       return res.redirect('/login');
-//     }
-//     req.logIn(usuario,function(err){
-//       if(err) return next (err);
-//       else{
-//         return res.redirect('/');
-//       }
-//     });
-//   })(req, res, next);
 
 app.get('/signup', isLoggedIn, function(req, res) {
   	res.render('signup', {
@@ -195,30 +168,12 @@ app.get('/signup', isLoggedIn, function(req, res) {
   });
 });
 
-// process the signup form
 app.post('/signup', passport.authenticate('local-signup', {
 	successRedirect : '/', // redirect to the secure profile section
 	failureRedirect : '/signup', // redirect back to the signup page if there is an error
 	failureFlash : true // allow flash messages
 }));
 
-
-// app.post('/signup',function(req, res) {
-//   var usuario = new Usuario(); 
-// 	var params = req.body;
-
-// 	usuario.nombre = params.nombre;
-// 	usuario.apellido = params.apellido;
-// 	usuario.email = params.email;
-//   	usuario.password = sha1(params.password);
-  
-//   var query = connection.query('INSERT INTO '+DATABASE+'.'+TABLE+' SET ?', usuario, function(error, results, fields){
-// 		if (error) throw error;
-// 		else{
-// 			res.status(200).send({ usuario : usuario});
-// 		}
-// 	});
-// });
 app.get('/logout', function(req, res){
   req.logout();
   res.redirect('/');
@@ -231,7 +186,6 @@ app.get('/forgot', function(req, res) {
 });
 
 app.post('/forgot', function(req, res, next) {
-	// console.log(req.body.email);
 	var email = req.body.email;
 		
   	async.waterfall([
@@ -242,8 +196,6 @@ app.post('/forgot', function(req, res, next) {
 	  	});
 	},
 	function(token, done) {
-		console.log(token.length);
-		//buscar al usuario por email
 		connection.query('SELECT * FROM '+TABLE+' WHERE email = ?', [email], (error, results)=>{
 			if(error){
 				return done(err);
@@ -258,7 +210,7 @@ app.post('/forgot', function(req, res, next) {
 					var result = JSON.stringify(results);
 					
 					if (error){
-						console.log("ERROR"+error);
+						console.log("ERROR "+error);
 						return done(null, false, req.flash('MysqlError', "Error al ejecutar query"));
 					}
 					if(!result.length){
@@ -273,7 +225,6 @@ app.post('/forgot', function(req, res, next) {
 		} );
 	},
 	function (token,user,done){
-		// user=JSON.stringify(user);
 		
 		var smtpTransport = nodemailer.createTransport({
 			service: 'gmail',
@@ -282,46 +233,23 @@ app.post('/forgot', function(req, res, next) {
 				pass: 'Qwerty123@'
 			},
 			tls: {
-				// do not fail on invalid certs
 				rejectUnauthorized: false
 			}
 		});
 
-		// var options = {
-		// 	auth: {
-		// 		api_key: 'Qwerty123'
-		// 	}
-		// }
-		 
-		// // or 
-		 
-		// // username + password 
-		// var options = {
-		// 	auth: {
-		// 		api_user: 'ivanrojo07',
-		// 		api_key: 'Qwerty123'
-		// 	}
-		// }
-			
-		// var smtpTransport = nodemailer.createTransport(sgTransport(options));
-		
-
-	
-		
-
 		var mailOptions = {
 			to: user.email,
-			// from: 'irojo@byw-si.com.mx',
-			subject: 'Node.js Password Reset',
-			text: 'You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n' +
-				'Please click on the following link, or paste this into your browser to complete the process:\n\n' +
-				'http://' + req.headers.host + '/reset/' + token + '\n\n' +
-				'If you did not request this, please ignore this email and your password will remain unchanged.\n'
+			subject: 'Cambio de contraseña',
+			text: 	'Recibio este correo porque usted (o alguien más) solicito que se reestableciera su contraseña de su cuenta.\n\n'+
+					'Por favor da click en el siguiente link, o copialo y pegalo en tu navegador para completar el proceso:\n\n'+
+					'http://'+req.headers.host+'/reset/'+token+'\n\n'+
+					'Si usted no realizo esta petición, por favor ignore este correo y su contraseña permanecera sin cambios.\n'
+			
 		};
 		smtpTransport.sendMail(mailOptions, function(err) {
 			req.flash('info', 'An e-mail has been sent to ' + user.email + ' with further instructions.');
 			if(err){
-				console.log('Hola hay un Error '+err);
+				console.log('Puede ver un Error '+err);
 			}
 			done(err, 'done');
 		});
@@ -345,12 +273,9 @@ app.get('/reset/:token', function(req, res) {
 		else{
 			if(rows[0].resetPasswordExpires <= Date.now()) {
 				req.flash('info','El token para reestablecer esta contraseña ha caducado');
-				console.log('El token para reestablecer esta contraseña ha caducado');
+				alert('El token para reestablecer esta contraseña ha caducado');
 			}
 			else{
-				// console.log('token fecha	'+rows[0].resetPasswordExpires);
-				// console.log('fecha actual	'+Date.now());
-				// // console.log(JSON.stringify(req.usuario));
 				res.render('reset',{
 					user: req.usuario
 				});
@@ -386,13 +311,7 @@ app.post('/reset/:token', function(req, res) {
 						return done( error, user);
 						next();
 					}
-				});
-  
-				// user.save(function(err) {
-				// 	req.logIn(user, function(err) {
-				// 	done(err, user);
-				// 	});
-				// });
+				});  
 		}
 	});
 	},
@@ -404,7 +323,6 @@ app.post('/reset/:token', function(req, res) {
 				pass: 'Qwerty123@'
 			},
 			tls: {
-				// do not fail on invalid certs
 				rejectUnauthorized: false
 			}
 		});
@@ -412,9 +330,10 @@ app.post('/reset/:token', function(req, res) {
 		var mailOptions = {
 		  to: user.email,
 		  from: 'passwordreset@demo.com',
-		  subject: 'Your password has been changed',
-		  text: 'Hello,\n\n' +
-			'This is a confirmation that the password for your account ' + user.email + ' has just been changed.\n'
+		  subject: 'Tu contraseña fue reestablecida correctamente',
+		  text: 	'Hola,\n\n'+
+		  			'Este es una confirmación de que tu contraseña de tu cuenta '+user.email+' fue recientemente cambiada.\n'
+		 
 		};
 		smtpTransport.sendMail(mailOptions, function(err) {
 		  req.flash('success', 'Success! Your password has been changed.');
@@ -428,14 +347,13 @@ app.post('/reset/:token', function(req, res) {
 
 function isLoggedIn(req, res, next) {
 	
-		// if user is authenticated in the session, carry on
-		if (!req.isAuthenticated())
+		if (!req.isAuthenticated()){
 			return next();
-	
-		// if they aren't redirect them to the home page
+		}
 		res.redirect('/');
 	}
 	
+app.use('/api', api);
 
 app.listen(app.get('port'), function() {
   console.log('Express server listening on port ' + app.get('port'));
